@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -Wl,-znodelete -shared  -o libSkeletonPass.so CMakeFiles/SkeletonPass.dir/Skeleton.cpp.o 
