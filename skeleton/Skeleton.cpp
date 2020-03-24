@@ -98,11 +98,98 @@ namespace {
   struct SkeletonPass : public ModulePass {
     static char ID;
     SkeletonPass() : ModulePass(ID) {}
+    Triple TargetTriple;
 
-    
 
-       
-    
+    virtual bool runOnModule(Module &M) {
+      TargetTriple=Triple(M.getTargetTriple());
+      auto &DL = M.getDataLayout();
+      LLVMContext &context = M.getContext();
+
+      Type* it = IntegerType::getInt8Ty(context);
+
+      IRBuilder<> builder(context);
+       for(auto &global : M.globals()){
+         if(global.isConstant())
+           continue;
+
+         if(global.getMetadata("past")){
+           if(cast<MDString>(global.getMetadata("past")->getOperand(0))->getString()=="true"){
+             continue;
+           }
+         }
+
+          Type *Ty=global.getValueType();
+          long size=DL.getTypeAllocSize(Ty);
+          errs()<<"var name: "<<global.getName()<<"\n";
+          errs()<<"var size: "<<size<<"\n";
+
+          ArrayType* arrayTyper = ArrayType::get(it, 16+16-size%16);
+
+          StructType *gTy=StructType::get(global.getType(),arrayTyper);
+          Constant* initializer;
+          if(global.hasInitializer()){
+            initializer = ConstantStruct::get(gTy,global.getInitializer(),Constant::getNullValue(arrayTyper));
+          }
+          else{
+            initializer = ConstantStruct::get(gTy,Constant::getNullValue(global.getType()),Constant::getNullValue(arrayTyper));
+          }
+          auto gv=new GlobalVariable(M, gTy, global.isConstant(),GlobalValue::CommonLinkage,initializer,Twine("__xasan_global")+GlobalValue::dropLLVMManglingEscape(global.getName()));
+
+          gv->copyAttributesFrom(&global);
+          gv->setComdat(global.getComdat());
+          gv->setUnnamedAddr(GlobalValue::UnnamedAddr::None);
+
+          MDNode* N = MDNode::get(context, MDString::get(context, "true"));
+          gv->setMetadata("past",N);
+
+          global.replaceAllUsesWith(gv);
+          gv->takeName(&global);
+
+          for(auto &F : M){
+
+            if(F.getName()=="mark_invalid"||F.getName()=="mark_valid")
+              continue;
+            int first_flag=0;
+            BasicBlock *last;
+            for(auto &BB: F){
+              last=&BB;
+              if(first_flag==0){
+                first_flag=1;
+                for(auto &Inst: BB){
+                  IRBuilder<> IRB(&Inst);
+                  FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
+                  auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
+
+                  ConstantInt *size_rz = builder.getInt64(16+16-size%16);
+                  ConstantInt *offset =IRB.getInt64(size);
+                  Value *rzv=IRB.CreateIntToPtr(
+                    IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
+                  CallInst::Create(callee_rz, {rzv,size_rz}, "",&Inst);
+                  break;
+                }
+              }
+            }
+            Instruction* term=last->getTerminator();
+            IRBuilder<> IRB(term);
+            FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
+            auto callee_rz = M.getOrInsertFunction("mark_valid", type_rz);
+
+            ConstantInt *size_rz = builder.getInt64(16+16-size%16);
+            ConstantInt *offset =IRB.getInt64(size);
+            Value *rzv=IRB.CreateIntToPtr(
+                                          IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
+            CallInst::Create(callee_rz, {rzv,size_rz}, "",term);
+          }
+
+       }
+
+
+
+
+       return false;
+
+    }
   };
 }
 
@@ -112,6 +199,9 @@ static void registerSkeletonPass(const PassManagerBuilder &,
                          legacy::PassManagerBase &PM) {
   PM.add(new SkeletonPass());
 }
+
 static RegisterStandardPasses
-  RegisterMyPass(PassManagerBuilder::EP_EarlyAsPossible,
-                 registerSkeletonPass);
+ RegisterMyPass(PassManagerBuilder::EP_ModuleOptimizerEarly, registerSkeletonPass);
+
+static RegisterStandardPasses
+RegisterMyPass0(PassManagerBuilder::EP_EnabledOnOptLevel0, registerSkeletonPass);

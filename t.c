@@ -6,7 +6,7 @@ struct ff{
     char b[4];
 };
 
-char a[10];
+char a;
 char b;
 char c;
 char d;
@@ -47,6 +47,6 @@ void func(){
 }
 
 int main(){
-  printf("%p %p %p %p\n",&a,&b,&c,&d);
+  printf("addr: %p %p %p %p\n",&a,&b,&c,&d);
   return 0;
 }
