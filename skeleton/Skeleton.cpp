@@ -101,6 +101,7 @@ namespace {
     Triple TargetTriple;
     vector<Instruction*> starts;
     vector<Instruction*> ends;
+    vector<GlobalVariable*> to_remove;
 
 
     virtual bool runOnModule(Module &M) {
@@ -112,28 +113,41 @@ namespace {
 
       BasicBlock* last;
       for(auto &F : M){
-            if(F.getName()=="mark_invalid"||F.getName()=="mark_valid")
+	    auto name=F.getName();
+            if(name=="report_xasan"||name=="enter_func"||name=="leave_func"||name=="mark_valid"||name=="mark_invalid")
               continue;
+
             int first_flag=0;
+	    int end_flag=0;
             for(auto &BB: F){
                 last=&BB;
               if(first_flag==0){
                 first_flag++;
                 for(auto &Inst: BB){
                         starts.push_back(&Inst);
+			end_flag=1;
                         break;
                 }
               }
             }
+	    if(end_flag){
             Instruction* term=last->getTerminator();
             ends.push_back(term);
+	    }
+
       }
+      errs()<<"start: "<<starts.size()<<" "<<ends.size()<<"\n";
 
 
       IRBuilder<> builder(context);
        for(auto &global : M.globals()){
          if(global.isConstant())
            continue;
+	 if(global.getName().startswith("llvm."))
+		 continue;
+	 if(!ShouldInstrumentGlobal(&global)){
+		continue;
+	 }
 
          if(global.getMetadata("past")){
            if(cast<MDString>(global.getMetadata("past")->getOperand(0))->getString()=="true"){
@@ -148,25 +162,25 @@ namespace {
 
           ArrayType* arrayTyper = ArrayType::get(it, 16+16-size%16);
 
-          StructType *gTy=StructType::get(global.getType(),arrayTyper);
+          StructType *gTy=StructType::get(global.getValueType(),arrayTyper);
           Constant* initializer;
-          if(global.hasInitializer()){
-            initializer = ConstantStruct::get(gTy,global.getInitializer(),Constant::getNullValue(arrayTyper));
-          }
-          else{
-            initializer = ConstantStruct::get(gTy,Constant::getNullValue(global.getType()),Constant::getNullValue(arrayTyper));
-          }
-          auto gv=new GlobalVariable(M, gTy, global.isConstant(),GlobalValue::CommonLinkage,initializer,Twine("__xasan_global")+GlobalValue::dropLLVMManglingEscape(global.getName()));
+	  GlobalValue::LinkageTypes Linkage = global.getLinkage();
+	  if (global.isConstant() && Linkage == GlobalValue::PrivateLinkage)
+	      Linkage = GlobalValue::InternalLinkage;
 
-          gv->copyAttributesFrom(&global);
-          gv->setComdat(global.getComdat());
-          gv->setUnnamedAddr(GlobalValue::UnnamedAddr::None);
+          initializer = ConstantStruct::get(gTy,global.getInitializer(),Constant::getNullValue(arrayTyper));
+          auto gv=new GlobalVariable(M, gTy, global.isConstant(),Linkage,initializer,Twine("__xasan_global")+GlobalValue::dropLLVMManglingEscape(global.getName()));
 
           MDNode* N = MDNode::get(context, MDString::get(context, "true"));
           gv->setMetadata("past",N);
 
           global.replaceAllUsesWith(gv);
           gv->takeName(&global);
+	  to_remove.push_back(&global);
+
+           gv->copyAttributesFrom(&global);
+           gv->setComdat(global.getComdat());
+           gv->setUnnamedAddr(GlobalValue::UnnamedAddr::None);
           
           for(auto inst: starts){
             IRBuilder<> IRB(inst);
@@ -194,27 +208,131 @@ namespace {
        }
 
 
+       for(auto g:to_remove){
+	g->eraseFromParent();
+       }
 
 
        return false;
 
     }
+    bool ShouldInstrumentGlobal(GlobalVariable *G) {
+      Type *Ty = G->getValueType();
     
-  };
-}
+      if (!Ty->isSized()) return false;
+      if (!G->hasInitializer()) return false;
+      if (GlobalWasGeneratedByCompiler(G)) return false; // Our own globals.
+      // Two problems with thread-locals:
+      //   - The address of the main thread's copy can't be computed at link-time.
+      //   - Need to poison all copies, not just the main thread's one.
+      if (G->isThreadLocal()) return false;
+      // For now, just ignore this Global if the alignment is large.
+      // TU.
+      // FIXME: We can instrument comdat globals on ELF if we are using the
+      // GC-friendly metadata scheme.
+      if (!TargetTriple.isOSBinFormatCOFF()) {
+        if (!G->hasExactDefinition() || G->hasComdat())
+          return false;
+      } else {
+        // On COFF, don't instrument non-ODR linkages.
+        if (G->isInterposable())
+          return false;
+      }
+    
+      // If a comdat is present, it must have a selection kind that implies ODR
+      // semantics: no duplicates, any, or exact match.
+      if (Comdat *C = G->getComdat()) {
+        switch (C->getSelectionKind()) {
+        case Comdat::Any:
+        case Comdat::ExactMatch:
+        case Comdat::NoDuplicates:
+          break;
+        case Comdat::Largest:
+        case Comdat::SameSize:
+          return false;
+        }
+      }
+    
+      if (G->hasSection()) {
+        StringRef Section = G->getSection();
+    
+        // Globals from llvm.metadata aren't emitted, do not instrument them.
+        if (Section == "llvm.metadata") return false;
+        // Do not instrument globals from special LLVM sections.
+        if (Section.find("__llvm") != StringRef::npos || Section.find("__LLVM") != StringRef::npos) return false;
+    
+        // Do not instrument function pointers to initialization and termination
+        // routines: dynamic linker will not properly handle redzones.
+        if (Section.startswith(".preinit_array") ||
+            Section.startswith(".init_array") ||
+            Section.startswith(".fini_array")) {
+          return false;
+        }
+    
+        // On COFF, if the section name contains '$', it is highly likely that the
+        // user is using section sorting to create an array of globals similar to
+        // the way initialization callbacks are registered in .init_array and
+        // .CRT$XCU. The ATL also registers things in .ATL$__[azm]. Adding redzones
+        // to such globals is counterproductive, because the intent is that they
+        // will form an array, and out-of-bounds accesses are expected.
+        // See https://github.com/google/sanitizers/issues/305
+        // and http://msdn.microsoft.com/en-US/en-en/library/bb918180(v=vs.120).aspx
+        if (TargetTriple.isOSBinFormatCOFF() && Section.contains('$')) {
+          return false;
+        }
+    
+        if (TargetTriple.isOSBinFormatMachO()) {
+          StringRef ParsedSegment, ParsedSection;
+          unsigned TAA = 0, StubSize = 0;
+          bool TAAParsed;
+          std::string ErrorCode = MCSectionMachO::ParseSectionSpecifier(
+              Section, ParsedSegment, ParsedSection, TAA, TAAParsed, StubSize);
+          assert(ErrorCode.empty() && "Invalid section specifier.");
+    
+          // Ignore the globals from the __OBJC section. The ObjC runtime assumes
+          // those conform to /usr/lib/objc/runtime.h, so we can't add redzones to
+          // them.
+          if (ParsedSegment == "__OBJC" ||
+              (ParsedSegment == "__DATA" && ParsedSection.startswith("__objc_"))) {
+            return false;
+          }
+          // See https://github.com/google/sanitizers/issues/32
+          // Constant CFString instances are compiled in the following way:
+          //  -- the string buffer is emitted into
+          //     __TEXT,__cstring,cstring_literals
+          //  -- the constant NSConstantString structure referencing that buffer
+          //     is placed into __DATA,__cfstring
+          // Therefore there's no point in placing redzones into __DATA,__cfstring.
+          // Moreover, it causes the linker to crash on OS X 10.7
+          if (ParsedSegment == "__DATA" && ParsedSection == "__cfstring") {
+            return false;
+          }
+          // The linker merges the contents of cstring_literals and removes the
+          // trailing zeroes.
+          if (ParsedSegment == "__TEXT" && (TAA & MachO::S_CSTRING_LITERALS)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+    static bool GlobalWasGeneratedByCompiler(GlobalVariable *G) {
+      // Do not instrument @llvm.global_ctors, @llvm.used, etc.
+      if (G->getName().startswith("llvm."))
+        return true;
+    
+      // Do not instrument gcov counter arrays.
+      if (G->getName() == "__llvm_gcov_ctr")
+        return true;
+    
+      return false;
+    }
+        
+      };
+    }
+    
 
 
-//IRBuilder<> IRB(&Inst);
-//                  FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
-//                  auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
-//
-//                  ConstantInt *size_rz = builder.getInt64(16+16-size%16);
-//                  ConstantInt *offset =IRB.getInt64(size);
-//                  Value *rzv=IRB.CreateIntToPtr(
-//                    IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
-//                  CallInst::Create(callee_rz, {rzv,size_rz}, "",&Inst);
-//
-//
 
 char SkeletonPass::ID = 0;
 

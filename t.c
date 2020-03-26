@@ -1,16 +1,13 @@
 #include <stdio.h>
 #include <stdint.h>
+#include "t.h"
+
+char a=0;
 
 struct ff{
     int a;
     char b[4];
 };
-
-char a;
-char b;
-char c;
-char d;
-
 
 void enter_func(char* name){
 
@@ -42,11 +39,10 @@ void func(){
    f.b[0]=22;
    a[3]=123;
    b[1]=12;
-   printf("a: %p, b: %p, c:%p\n",a,b,c);
-   printf("a: %d, b: %d,  ff: %d\n",a[1],b[1], f.b[0]);
 }
 
 int main(){
-  printf("addr: %p %p %p %p\n",&a,&b,&c,&d);
+  func();
+  printf("%p\n",&a);
   return 0;
 }
