@@ -99,6 +99,8 @@ namespace {
     static char ID;
     SkeletonPass() : ModulePass(ID) {}
     Triple TargetTriple;
+    vector<Instruction*> starts;
+    vector<Instruction*> ends;
 
 
     virtual bool runOnModule(Module &M) {
@@ -107,6 +109,26 @@ namespace {
       LLVMContext &context = M.getContext();
 
       Type* it = IntegerType::getInt8Ty(context);
+
+      BasicBlock* last;
+      for(auto &F : M){
+            if(F.getName()=="mark_invalid"||F.getName()=="mark_valid")
+              continue;
+            int first_flag=0;
+            for(auto &BB: F){
+                last=&BB;
+              if(first_flag==0){
+                first_flag++;
+                for(auto &Inst: BB){
+                        starts.push_back(&Inst);
+                        break;
+                }
+              }
+            }
+            Instruction* term=last->getTerminator();
+            ends.push_back(term);
+      }
+
 
       IRBuilder<> builder(context);
        for(auto &global : M.globals()){
@@ -145,42 +167,29 @@ namespace {
 
           global.replaceAllUsesWith(gv);
           gv->takeName(&global);
-
-          for(auto &F : M){
-
-            if(F.getName()=="mark_invalid"||F.getName()=="mark_valid")
-              continue;
-            int first_flag=0;
-            BasicBlock *last;
-            for(auto &BB: F){
-              last=&BB;
-              if(first_flag==0){
-                first_flag=1;
-                for(auto &Inst: BB){
-                  IRBuilder<> IRB(&Inst);
-                  FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
-                  auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
-
-                  ConstantInt *size_rz = builder.getInt64(16+16-size%16);
-                  ConstantInt *offset =IRB.getInt64(size);
-                  Value *rzv=IRB.CreateIntToPtr(
-                    IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
-                  CallInst::Create(callee_rz, {rzv,size_rz}, "",&Inst);
-                  break;
-                }
-              }
-            }
-            Instruction* term=last->getTerminator();
-            IRBuilder<> IRB(term);
+          
+          for(auto inst: starts){
+            IRBuilder<> IRB(inst);
             FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
-            auto callee_rz = M.getOrInsertFunction("mark_valid", type_rz);
-
+            auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
             ConstantInt *size_rz = builder.getInt64(16+16-size%16);
             ConstantInt *offset =IRB.getInt64(size);
             Value *rzv=IRB.CreateIntToPtr(
-                                          IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
-            CallInst::Create(callee_rz, {rzv,size_rz}, "",term);
+              IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
+            CallInst::Create(callee_rz, {rzv,size_rz}, "",inst);
           }
+
+          for(auto inst: ends){
+            IRBuilder<> IRB(inst);
+            FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
+            auto callee_rz = M.getOrInsertFunction("mark_valid", type_rz);
+            ConstantInt *size_rz = builder.getInt64(16+16-size%16);
+            ConstantInt *offset =IRB.getInt64(size);
+            Value *rzv=IRB.CreateIntToPtr(
+              IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
+            CallInst::Create(callee_rz, {rzv,size_rz}, "",inst);
+          }
+
 
        }
 
@@ -190,8 +199,22 @@ namespace {
        return false;
 
     }
+    
   };
 }
+
+
+//IRBuilder<> IRB(&Inst);
+//                  FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
+//                  auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
+//
+//                  ConstantInt *size_rz = builder.getInt64(16+16-size%16);
+//                  ConstantInt *offset =IRB.getInt64(size);
+//                  Value *rzv=IRB.CreateIntToPtr(
+//                    IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
+//                  CallInst::Create(callee_rz, {rzv,size_rz}, "",&Inst);
+//
+//
 
 char SkeletonPass::ID = 0;
 
