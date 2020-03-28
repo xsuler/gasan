@@ -145,6 +145,8 @@ namespace {
            continue;
 	 if(global.getName().startswith("llvm."))
 		 continue;
+	 if(global.getSection().startswith(".bss.percpu"))
+		 continue;
 	 if(!ShouldInstrumentGlobal(&global)){
 		continue;
 	 }

@@ -44,5 +44,8 @@ void func(){
 int main(){
   func();
   printf("%p\n",&a);
+  printf("%d\n",(int)*(&a+1));
+  printf("%d\n",(int)*(&a+2));
+  printf("%d\n",(int)*(&a+3));
   return 0;
 }
