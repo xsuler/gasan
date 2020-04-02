@@ -190,7 +190,7 @@ namespace {
             auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
             ConstantInt *size_rz = builder.getInt64(16+16-size%16);
             ConstantInt *offset =IRB.getInt64(size);
-            ConstantInt *er_sz=IRB.getInt8(3);
+            ConstantInt *er_sz=IRB.getInt8(0);
             Value *rzv=IRB.CreateIntToPtr(
               IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
             CallInst::Create(callee_rz, {rzv,size_rz,er_sz}, "",inst);
