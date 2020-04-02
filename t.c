@@ -2,7 +2,9 @@
 #include <stdint.h>
 #include "t.h"
 
-char a=0;
+char a[5]={0};
+char b=0;
+char c=0;
 
 struct ff{
     int a;
@@ -17,6 +19,10 @@ void leave_func(){
 
 }
 
+
+void mark_init_global(char* addr, int64_t size){
+ printf("global: %p, size: %ld\n",addr,size);
+}
 
 void mark_valid(char* addr, int64_t size){
  printf("addr: %p, size: %ld\n",addr,size);
@@ -43,9 +49,6 @@ void func(){
 
 int main(){
   func();
-  printf("%p\n",&a);
-  printf("%d\n",(int)*(&a+1));
-  printf("%d\n",(int)*(&a+2));
-  printf("%d\n",(int)*(&a+3));
+  printf("%p %p %p\n",&a,&b,&c);
   return 0;
 }
