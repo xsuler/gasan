@@ -166,7 +166,7 @@ namespace {
 
           StructType *gTy=StructType::get(global.getValueType(),arrayTyper);
           Constant* initializer;
-	  GlobalValue::LinkageTypes Linkage = global.getLinkage();
+          GlobalValue::LinkageTypes Linkage = global.getLinkage();
 
 	  if (global.isConstant() && Linkage == GlobalValue::PrivateLinkage)
 	      Linkage = GlobalValue::InternalLinkage;
@@ -179,20 +179,28 @@ namespace {
             initializer_global=global.getInitializer();
           }
           initializer = ConstantStruct::get(gTy,initializer_global,Constant::getNullValue(arrayTyper));
-          auto gv=new GlobalVariable(M, gTy, global.isConstant(),Linkage,initializer,Twine("__xasan_global")+GlobalValue::dropLLVMManglingEscape(global.getName()));
+          auto gv=new GlobalVariable(M, gTy, global.isConstant(),Linkage,initializer,Twine("__xasan_global_")+GlobalValue::dropLLVMManglingEscape(global.getName()));
 
           MDNode* N = MDNode::get(context, MDString::get(context, "true"));
           gv->setMetadata("past",N);
 
           global.replaceAllUsesWith(gv);
           gv->takeName(&global);
-	  to_remove.push_back(&global);
+          to_remove.push_back(&global);
 
            gv->copyAttributesFrom(&global);
            gv->setComdat(global.getComdat());
            gv->setUnnamedAddr(GlobalValue::UnnamedAddr::None);
           
-          
+          //for(auto inst: starts){
+          //  IRBuilder<> IRB(inst);
+          //  FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
+          //  auto callee_rz = M.getOrInsertFunction("mark_init_global", type_rz);
+          //  ConstantInt *size_rz = builder.getInt64(size);
+          //  ConstantInt *er_sz=IRB.getInt8(0);
+          //  CallInst::Create(callee_rz, {gv,size_rz,er_sz}, "",inst);
+          //}
+
 
           for(auto inst: starts){
             IRBuilder<> IRB(inst);
