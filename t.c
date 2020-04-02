@@ -2,7 +2,9 @@
 #include <stdint.h>
 #include "t.h"
 
-char a=0;
+char a[5]={0};
+char b=0;
+char c=0;
 
 struct ff{
     int a;
@@ -43,6 +45,6 @@ void func(){
 
 int main(){
   func();
-  printf("%p\n",&a);
+  printf("%p %p %p\n",&a,&b,&c);
   return 0;
 }
