@@ -24,10 +24,8 @@ void mark_init_global(char* addr, int64_t size){
 }
 
 void mark_valid(char* addr, int64_t size){
- printf("addr: %p, size: %ld\n",addr,size);
 }
 void mark_invalid(char* addr, int64_t size){
- printf("inv addr: %p, size: %ld\n",addr,size);
 }
 
 
@@ -48,6 +46,5 @@ void func(){
 
 int main(){
   func();
-  printf("%p %p %p\n",&a,&b,&c);
   return 0;
 }
