@@ -208,14 +208,6 @@ namespace {
               IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
             CallInst::Create(callee_rz, {rzv,size_rz}, "",inst);
           }
-
-        for(auto inst: starts){
-            IRBuilder<> IRB(inst);
-            FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
-            auto callee_rz = M.getOrInsertFunction("mark_init_global", type_rz);
-            ConstantInt *size_rz = builder.getInt64(size);
-            CallInst::Create(callee_rz, {gv,size_rz}, "",inst);
-          }
        }
 
 
