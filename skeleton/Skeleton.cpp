@@ -169,7 +169,6 @@ namespace {
 	  GlobalValue::LinkageTypes Linkage = global.getLinkage();
 
 	  if (global.isConstant() && Linkage == GlobalValue::PrivateLinkage)
-
 	      Linkage = GlobalValue::InternalLinkage;
 
           Constant* initializer_global;
@@ -242,8 +241,8 @@ namespace {
       // FIXME: We can instrument comdat globals on ELF if we are using the
       // GC-friendly metadata scheme.
       if (!TargetTriple.isOSBinFormatCOFF()) {
-        //if (!G->hasExactDefinition() || G->hasComdat())
-        if ( G->hasComdat())
+        if (!G->hasExactDefinition() || G->hasComdat())
+        //if ( G->hasComdat())
           return false;
       } else {
         // On COFF, don't instrument non-ODR linkages.
