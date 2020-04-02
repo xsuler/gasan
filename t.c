@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
-#include "t.h"
 
 char a[5]={0};
-char b=0;
+char b;
 char c=0;
 
 struct ff{

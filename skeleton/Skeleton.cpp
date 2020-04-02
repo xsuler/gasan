@@ -167,10 +167,19 @@ namespace {
           StructType *gTy=StructType::get(global.getValueType(),arrayTyper);
           Constant* initializer;
 	  GlobalValue::LinkageTypes Linkage = global.getLinkage();
+
 	  if (global.isConstant() && Linkage == GlobalValue::PrivateLinkage)
+
 	      Linkage = GlobalValue::InternalLinkage;
 
-          initializer = ConstantStruct::get(gTy,global.getInitializer(),Constant::getNullValue(arrayTyper));
+          Constant* initializer_global;
+          if (!global.hasInitializer()){
+            initializer_global=Constant::getNullValue(global.getValueType());
+          }
+          else{
+            initializer_global=global.getInitializer();
+          }
+          initializer = ConstantStruct::get(gTy,initializer_global,Constant::getNullValue(arrayTyper));
           auto gv=new GlobalVariable(M, gTy, global.isConstant(),Linkage,initializer,Twine("__xasan_global")+GlobalValue::dropLLVMManglingEscape(global.getName()));
 
           MDNode* N = MDNode::get(context, MDString::get(context, "true"));
@@ -212,7 +221,7 @@ namespace {
 
 
        for(auto g:to_remove){
-	g->eraseFromParent();
+            g->eraseFromParent();
        }
 
 
@@ -223,7 +232,6 @@ namespace {
       Type *Ty = G->getValueType();
     
       if (!Ty->isSized()) return false;
-      if (!G->hasInitializer()) return false;
       if (GlobalWasGeneratedByCompiler(G)) return false; // Our own globals.
       // Two problems with thread-locals:
       //   - The address of the main thread's copy can't be computed at link-time.
@@ -234,7 +242,8 @@ namespace {
       // FIXME: We can instrument comdat globals on ELF if we are using the
       // GC-friendly metadata scheme.
       if (!TargetTriple.isOSBinFormatCOFF()) {
-        if (!G->hasExactDefinition() || G->hasComdat())
+        //if (!G->hasExactDefinition() || G->hasComdat())
+        if ( G->hasComdat())
           return false;
       } else {
         // On COFF, don't instrument non-ODR linkages.
