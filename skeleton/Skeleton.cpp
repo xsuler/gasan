@@ -114,7 +114,7 @@ namespace {
       BasicBlock* last;
       for(auto &F : M){
 	    auto name=F.getName();
-            if(name=="report_xasan"||name=="enter_func"||name=="leave_func"||name=="mark_valid"||name=="mark_invalid")
+            if(name=="report_xasan"||name=="enter_func"||name=="leave_func"||name=="mark_valid"||name=="mark_init_global"||name=="mark_invalid")
               continue;
 
             int first_flag=0;
@@ -184,13 +184,15 @@ namespace {
            gv->setComdat(global.getComdat());
            gv->setUnnamedAddr(GlobalValue::UnnamedAddr::None);
           
+          
+
           for(auto inst: starts){
             IRBuilder<> IRB(inst);
             FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context),Type::getInt8Ty(context)}, false);
             auto callee_rz = M.getOrInsertFunction("mark_invalid", type_rz);
             ConstantInt *size_rz = builder.getInt64(16+16-size%16);
             ConstantInt *offset =IRB.getInt64(size);
-            ConstantInt *er_sz=IRB.getInt8(3);
+            ConstantInt *er_sz=IRB.getInt8(0);
             Value *rzv=IRB.CreateIntToPtr(
               IRB.CreateAdd(gv,offset),Type::getInt8PtrTy(context));
             CallInst::Create(callee_rz, {rzv,size_rz,er_sz}, "",inst);
@@ -207,7 +209,13 @@ namespace {
             CallInst::Create(callee_rz, {rzv,size_rz}, "",inst);
           }
 
-
+        for(auto inst: starts){
+            IRBuilder<> IRB(inst);
+            FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context)}, false);
+            auto callee_rz = M.getOrInsertFunction("mark_init_global", type_rz);
+            ConstantInt *size_rz = builder.getInt64(size);
+            CallInst::Create(callee_rz, {gv,size_rz}, "",inst);
+          }
        }
 
 

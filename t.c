@@ -20,6 +20,10 @@ void leave_func(){
 }
 
 
+void mark_init_global(char* addr, int64_t size){
+ printf("global: %p, size: %ld\n",addr,size);
+}
+
 void mark_valid(char* addr, int64_t size){
  printf("addr: %p, size: %ld\n",addr,size);
 }
