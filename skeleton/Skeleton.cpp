@@ -153,30 +153,28 @@ namespace {
              continue;
            }
          }
-	if(!ShouldInstrumentGlobalT(&global)){
-		continue;
-	 }
-
-	{
-          Type *Ty=global.getValueType();
-          long size=DL.getTypeAllocSize(Ty);
-	  long hasInit=global.hasInitializer();
-
-          for(auto inst: starts){
-            IRBuilder<> IRB(inst);
-            FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context),Type::getInt64Ty(context)}, false);
-            auto callee_rz = M.getOrInsertFunction("mark_init_global", type_rz);
-            ConstantInt *size_rz = builder.getInt64(size);
-            ConstantInt *has_init = builder.getInt64(hasInit);
-            CallInst::Create(callee_rz, {&global,size_rz,has_init}, "",inst);
-          }
-	}
+//	if(!ShouldInstrumentGlobalT(&global)){
+//		continue;
+//	 }
+//
+//	{
+//          Type *Ty=global.getValueType();
+//          long size=DL.getTypeAllocSize(Ty);
+//	  long hasInit=global.hasInitializer();
+//
+//          for(auto inst: starts){
+//            IRBuilder<> IRB(inst);
+//            FunctionType *type_rz = FunctionType::get(Type::getVoidTy(context), {Type::getInt8PtrTy(context),Type::getInt64Ty(context),Type::getInt64Ty(context)}, false);
+//            auto callee_rz = M.getOrInsertFunction("mark_init_global", type_rz);
+//            ConstantInt *size_rz = builder.getInt64(size);
+//            ConstantInt *has_init = builder.getInt64(hasInit);
+//            CallInst::Create(callee_rz, {&global,size_rz,has_init}, "",inst);
+//          }
+//	}
 
 	 if(!ShouldInstrumentGlobal(&global)){
 		continue;
 	 }
-
-
 
           Type *Ty=global.getValueType();
           long size=DL.getTypeAllocSize(Ty);
@@ -258,6 +256,7 @@ namespace {
       // TU.
       // FIXME: We can instrument comdat globals on ELF if we are using the
       // GC-friendly metadata scheme.
+      if (!G->hasInitializer()) return false;
       if (!TargetTriple.isOSBinFormatCOFF()) {
         if (G->hasComdat())
         //if ( G->hasComdat())
